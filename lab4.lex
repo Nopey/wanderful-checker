@@ -139,7 +139,8 @@ int yywrap()
  /* process any error messages generated */
 int yyerror(char* s)
 {
-   fprintf(stderr, "\n***Error detected: %s\n   on/after line %d, col %d.\n\n", s, row+1, col);
+   // Printing these +1 so they align with text editor's counting
+   fprintf(stderr, "\n***Error detected: %s\n   on/after %d:%d.\n\n", s, row+1, col+1);
    ErrorLevel = 1;
    return 1;
 }

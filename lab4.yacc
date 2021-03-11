@@ -24,9 +24,11 @@ int MapSize = 0;
  *    associated data values for map row/col and facing direction */
 typedef struct Symbol {
    char SymName[MaxNameLen];
-   int row, col, is_bot;
+   int row, col;
+   symbol_tag_t tag;
    union {
-       struct { type_t type; } var;
+       struct { type_t type; struct Symbol *function; } var;
+       struct { type_t rtype; int argc; } func;
        struct { long maprow, mapcol, facing; } bot;
    };
 } Symbol_t;
@@ -34,6 +36,7 @@ typedef struct Symbol {
 /* declare the empty symbol table, track number of known symbols */
 static Symbol_t SymTable[MaxSyms];
 static int NumSyms = 0;
+static Symbol_t *CurrentFunction = 0;
 
 /* function to insert a new bot in the symbol table
  * returns 1 if successful, 0 otherwise
@@ -43,7 +46,12 @@ int insertBot(char const *name, int r, int c, long mrow, long mcol, long facing)
 /* function to insert a new var in the symbol table
  * returns 1 if successful, 0 otherwise
  * (Cannot be used for creating bots) */
-int insertVar(char const *name, int r, int c, int type);
+int insertVar(char const *name, int r, int c, int type, Symbol_t *function);
+
+/* function to insert a new func in the symbol table
+ * returns 1 if successful, 0 otherwise
+ * (Cannot be used for creating variables or bots) */
+int createFunc(char const *name, int r, int c, int rtype);
 
 /* function to check if a name is in the symbol table
  * returns symbol pointer, or null if unsuccessful */
@@ -259,7 +267,7 @@ lookup: BUILTIN LBRACKET value RBRACKET
    ;
 
 var_decl: TYPENAME VAR_NAME SEMI {
-      if (!insertVar($<info.name>2, row, col, $<info.type>1)) {
+      if (!insertVar($<info.name>2, row, col, $<info.type>1, CurrentFunction)) {
          char buf[MaxNameLen + 100];
          // TODO: Convert printf's to sprintf's, check all sprintf str safety.
          sprintf(buf, "redeclaration of variable %s (type %s, doesn't matter what old type is).", $<info.name>2, typeToName($<info.type>1));
@@ -307,9 +315,9 @@ int insertBot(char const *name, int r, int c, long mrow, long mcol, long facing)
       return 0;
 
    Symbol_t *sym = &SymTable[NumSyms++];
+   sym->tag = ST_BOT;
    sym->row = row;
    sym->col = col;
-   sym->is_bot = 1;
    sym->bot.maprow = mrow;
    sym->bot.mapcol = mcol;
    sym->bot.facing = facing;
@@ -320,7 +328,7 @@ int insertBot(char const *name, int r, int c, long mrow, long mcol, long facing)
    return 1;
 }
 
-int insertVar(char const *name, int r, int c, int type)
+int insertVar(char const *name, int r, int c, int type, Symbol_t *function)
 {
    if( NumSyms>=MaxSyms )
    {
@@ -331,10 +339,33 @@ int insertVar(char const *name, int r, int c, int type)
       return 0;
 
    Symbol_t *sym = &SymTable[NumSyms++];
+   sym->tag = ST_VAR;
    sym->row = row;
    sym->col = col;
-   sym->is_bot = 0;
    sym->var.type = type;
+   sym->var.function = function;
+
+   sym->SymName[0] = '\0';
+   strncat(sym->SymName, name, MaxNameLen);
+
+   return 1;
+}
+
+int CreateFunc(char const *name, int r, int c, int rtype)
+{
+   if( NumSyms>=MaxSyms )
+   {
+      yyerror("ICE: Symbol table full!");
+      return 0;
+   }
+   if( findSymbol( name ) )
+      return 0;
+
+   Symbol_t *sym = &SymTable[NumSyms++];
+   sym->tag = ST_FUNC;
+   sym->row = row;
+   sym->col = col;
+   sym->func.rtype = rtype;
 
    sym->SymName[0] = '\0';
    strncat(sym->SymName, name, MaxNameLen);
@@ -352,7 +383,7 @@ void printTable()
    for( int x=0; x<NumSyms; x++ )
    {
       Symbol_t *s = &SymTable[x];
-      if(!s->is_bot) continue;
+      if(s->tag!=ST_BOT) continue;
       char const *DIR = "NSWE";
       printf(
          " %d,%d\t(%d, %d)\t%c\t%s\n",
@@ -365,12 +396,25 @@ void printTable()
    for( int x=0; x<NumSyms; x++ )
    {
       Symbol_t *s = &SymTable[x];
-      if(s->is_bot) continue;
+      if(s->tag!=ST_VAR) continue;
       printf(
-         " %d,%d\t%s\t%s\n",
-         s->row+1, s->col, typeToName(s->var.type), s->SymName
+         " %d,%d\t%s\t%s\t{%s}\n",
+         s->row+1, s->col, typeToName(s->var.type), s->SymName,
+         s->var.function ? s->var.function->SymName : "~"
          //"   %s declared line %d, column %d, type %s\n",
          //s->SymName, s->row+1, s->col, typeToName(s->var.type)
+      );
+   }
+   puts(" - - - -");
+   for( int x=0; x<NumSyms; x++ )
+   {
+      Symbol_t *s = &SymTable[x];
+      if(s->tag!=ST_FUNC) continue;
+      printf(
+         " %d,%d\t%s\t%s\n",
+         s->row+1, s->col, typeToName(s->func.rtype), s->SymName
+         //"   %s declared line %d, column %d, return-type %s\n",
+         //s->SymName, s->row+1, s->col, typeToName(s->func.rtype)
       );
    }
 }

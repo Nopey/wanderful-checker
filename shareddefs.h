@@ -14,6 +14,8 @@ typedef enum {
 
 // typenames
 typedef enum {
+   // as these enum values are arbitrary, I'm distancing
+   // them from `0` to make debugging uninitialized values easier
    T_ERROR = 51,
    T_FACING,
    T_NAME,
@@ -36,3 +38,10 @@ typedef enum {
    COMP_EQ,
    COMP_NE,
 } comp_t;
+
+// discriminator for symbol union
+typedef enum {
+    ST_VAR,
+    ST_BOT,
+    ST_FUNC
+} symbol_tag_t;
