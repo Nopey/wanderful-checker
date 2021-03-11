@@ -11,6 +11,7 @@ Digit [0-9]
  /* part 1b: the C setup */
 %{
 #include<stdio.h>
+#include<assert.h>
 #include "shareddefs.h"
 #include "y.tab.h"
 extern YYSTYPE yylval;
@@ -25,18 +26,35 @@ int row=0;
  /* ---- part 2: token rules ---- */
 
  /* Literals */
-\'([^\'\n]*)\' {
+\'(([^\'\n\\]|\\.)*)\' {
    // String Literal
-   int len = strlen(yytext);
+   int len = 0;
+   int is_escaped = 0;
+   for( char *c = yytext; *c; c++ ) // C++? in my parser? blasphemy!
+   {
+      len++;
+      if( is_escaped )
+      {
+         if( *c!='\\' && *c!='\'' )
+         {
+            char buf[] = "Unknown escape sequence \\? in string literal!";
+            buf[25] = *c;
+            yyerror(buf);
+         }
+         is_escaped = 0;
+      }
+      else if(*c=='\\') is_escaped = 1;
+   }
+   assert(!is_escaped);
    if (len >= MaxNameLen)
    {
       // Because we reuse the info.name buffer, MaxNameLen is the limit for strings as well.
       yyerror("String exceeds max length.");
       printf("   offending string was: %s, limit is %d.\n", yytext, MaxNameLen-1);
-  }
-  col += len;
-  strcpy(yylval.info.name, yytext);
-  return(L_STRING);
+   }
+   col += len;
+   strcpy(yylval.info.name, yytext);
+   return(L_STRING);
 }
 "north"   { col+=5; yylval.info.type = T_FACING; yylval.info.dir = DIR_N; return(L_DIR); }
 "south"   { col+=5; yylval.info.type = T_FACING; yylval.info.dir = DIR_S; return(L_DIR); }
