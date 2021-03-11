@@ -121,7 +121,7 @@ void printTable();
  /* identify all nonterminals */
 %type<struct nodeinfo> program bot_ref var_ref statement statements function functions
  parameter oneormoreparameters parameters action loop select comparison value lookup
- var_decl argument oneormorearguments arguments addsub_expr
+ var_decl argument oneormorearguments arguments addsub_expr return_stmt
 
  /* ---- part 2: grammar rules ----
   */
@@ -144,8 +144,10 @@ functions: {}
    | function functions
    ;
 
-parameter: TYPENAME VAR_NAME {
-   if (!insertParam($<info.name>2, row, col, $<info.type>1, CurrentFunction)) {
+parameter: TYPENAME VAR_NAME
+   {
+   if (!insertParam($<info.name>2, row, col, $<info.type>1, CurrentFunction))
+   {
       char buf[MaxNameLen + 100];
       sprintf(buf, "redeclaration of parameter %s (type %s, doesn't matter what old type is).", $<info.name>2, typeToName($<info.type>1));
       yyerror(buf);
@@ -162,9 +164,10 @@ parameters: {}
    | oneormoreparameters
    ;
 
-argument: value {
-   // TODO: Typecheck arguments
-}
+argument: value
+   {
+      // TODO: Typecheck arguments
+   }
    ;
 
 oneormorearguments: argument
@@ -177,7 +180,8 @@ arguments: {}
 
 bot_ref: BOT_NAME {
    Symbol_t *sym = findSymbol($<info.name>1);
-   if(!sym) {
+   if(!sym)
+   {
       char buf[MaxNameLen+40];
       sprintf(buf, "Bot %s referenced before creation.", $<info.name>1);
       yyerror(buf);
@@ -189,7 +193,8 @@ bot_ref: BOT_NAME {
 
 var_ref: VAR_NAME {
    Symbol_t *sym = findSymbol($<info.name>1);
-   if(!sym) {
+   if(!sym)
+   {
       char buf[MaxNameLen+40];
       sprintf(buf, "Variable %s referenced before creation.", $<info.name>1);
       yyerror(buf);
@@ -207,11 +212,19 @@ statement: select
    | loop
    | action
    | var_decl
+   | return_stmt
+   ;
+
+return_stmt: RETURN value SEMI
+   {
+      // TODO
+   }
    ;
 
 action: CREATE BOT_NAME L_NUMBER L_NUMBER L_DIR SEMI
    {
-      if (!insertBot($<info.name>2, row, col, $<info.number>3, $<info.number>4, $<info.dir>5)) {
+      if (!insertBot($<info.name>2, row, col, $<info.number>3, $<info.number>4, $<info.dir>5))
+      {
          char buf[MaxNameLen+40];
          sprintf(buf, "Redeclaration of `%s`", $<info.name>2);
          yyerror(buf);
@@ -245,9 +258,10 @@ action: CREATE BOT_NAME L_NUMBER L_NUMBER L_DIR SEMI
            yyerror(buf);
        }
    }
-   | PRINT value SEMI {
-   // TODO: Forbid printing nonetype.
-}
+   | PRINT value SEMI
+   {
+      // TODO: Forbid printing nonetype.
+   }
    | VAR_NAME ASSIGNOP value SEMI
    {
       char const *const varName = $<info.name>1;
@@ -359,9 +373,11 @@ lookup: BUILTIN LBRACKET value RBRACKET
    }
    ;
 
-var_decl: TYPENAME VAR_NAME SEMI {
+var_decl: TYPENAME VAR_NAME SEMI
+   {
       // TODO: Ensure variable type is not TYPE_NONE.
-      if (!insertVar($<info.name>2, row, col, $<info.type>1, CurrentFunction)) {
+      if (!insertVar($<info.name>2, row, col, $<info.type>1, CurrentFunction))
+      {
          char buf[MaxNameLen + 100];
          // TODO: Convert printf's to sprintf's, check all sprintf str safety.
          sprintf(buf, "redeclaration of variable %s (type %s, doesn't matter what old type is).", $<info.name>2, typeToName($<info.type>1));
@@ -375,7 +391,8 @@ var_decl: TYPENAME VAR_NAME SEMI {
 %%
 
  /* begin parsing */
-int main() {
+int main()
+{
    printf("Compilation begins:\n\n");
    ErrorLevel = 0;
    int res = yyparse();
