@@ -271,10 +271,31 @@ func_call_stmt: func_call SEMI
 
 func_call: VAR_NAME LBRACKET arguments RBRACKET
    {
-      // TODO: func_call needs to pull type, check function args..
+      // TODO: Check args.
+      char const *func_name = $<info.name>1;
+      Symbol_t *func = findSymbol(func_name);
+      if( !func )
+      {
+          char buf[MaxNameLen + 30];
+          sprintf(buf, "Cannot call undeclared function `%s`!\n", func_name);
+          yyerror(buf);
+          $<info.type>$ = T_ERROR;
+          break;
+      }
+
+      if( func->tag != ST_FUNC )
+      {
+          char buf[MaxNameLen + 30];
+          sprintf(buf, "Cannot call symbol `%s`! is it a variable or parameter?\n", func_name);
+          yyerror(buf);
+          $<info.type>$ = T_ERROR;
+          break;
+      }
+
+      $<info.type>$ = func->func.rtype;
 
       // Allow function name to be printed in func_call_stmt and value error messages
-      strcpy($<info.name>$, $<info.name>1);
+      strcpy($<info.name>$, func_name);
    }
    ;
 
@@ -604,6 +625,7 @@ void printTable()
 char const *typeToName( type_t type ) {
    char const *const typenames[T_END - T_ERROR] = {
       "<ERRORTYPE>",
+      "none",
       "facing",
       "name",
       "str",
