@@ -7,6 +7,7 @@
 %{
 #include<stdio.h>
 #include<string.h>
+#include<assert.h>
 #include "shareddefs.h"
 int yylex(void);
 int yywrap();
@@ -38,6 +39,12 @@ typedef struct Symbol {
 static Symbol_t SymTable[MaxSyms];
 static int NumSyms = 0;
 static Symbol_t *CurrentFunction = 0;
+
+/* Arguments iterator for checking arguments during function calls */
+static int argumentsRemaining = 0;
+static Symbol_t *argumentsIterator = 0;
+static Symbol_t *argumentsFunction = 0;
+
 
 /* function to insert a new bot in the symbol table
  * returns 1 if successful, 0 otherwise
@@ -145,11 +152,13 @@ function: FUNCTION VAR_NAME LBRACKET parameters RBRACKET COLON TYPENAME
       Symbol_t *func = createFunc($<info.name>2, row, col, $<info.type>7);
       if (!func)
       {
-         yyerror("Couldn't create function. TODO: Better error here");
+         char buf[MaxNameLen + 50];
+         sprintf(buf, "cannot redeclare function `%s`", $<info.name>2);
+         yyerror(buf);
          break;
       }
 
-      // Set our parameters' scope by greedily claiming all un-scoped parameters. 
+      // Set our parameters' scope by greedily claiming all un-scoped parameters.
       for( int idx=0; idx<NumSyms; idx++ )
       if( SymTable[idx].tag == ST_PARAM && !SymTable[idx].var.function )
       {
@@ -176,7 +185,10 @@ parameter: TYPENAME VAR_NAME
    if (!insertParam($<info.name>2, row, col, $<info.type>1))
    {
       char buf[MaxNameLen + 100];
-      sprintf(buf, "redeclaration of parameter %s (type %s, doesn't matter what old type is).", $<info.name>2, typeToName($<info.type>1));
+      sprintf(buf,
+         "cannot declare parameter %s (type %s). You're likely shadowing another parameter or function",
+         $<info.name>2, typeToName($<info.type>1)
+      );
       yyerror(buf);
    }
 }
@@ -189,20 +201,6 @@ oneormoreparameters: parameter
 
 parameters: {}
    | oneormoreparameters
-   ;
-
-argument: value
-   {
-      // TODO: Typecheck arguments
-   }
-   ;
-
-oneormorearguments: argument
-   | argument COMMA oneormorearguments
-   ;
-
-arguments: {}
-   | oneormorearguments
    ;
 
 bot_ref: BOT_NAME {
@@ -253,13 +251,33 @@ statement: select
 
 return_stmt: RETURN value SEMI
    {
-      // TODO: Return statement must typecheck against current function
+      if ( !CurrentFunction )
+      {
+         yyerror("`return` is only allowed inside of a function!");
+         break;
+      }
+      if ( CurrentFunction->func.rtype == T_NONE )
+      {
+         char buf[MaxNameLen+50];
+         sprintf(buf, "Cannot `return` in function `%s`, because it returns type none!", CurrentFunction->SymName);
+         yyerror(buf);
+         break;
+      }
+      type_t tval = $<info.type>2;
+      if ( CurrentFunction->func.rtype != tval )
+      {
+         char buf[MaxNameLen+100];
+         sprintf(buf, "Cannot `return` value of type %s in function `%s`, because it returns type `%s`!",
+            typeToName(tval), CurrentFunction->SymName, typeToName(CurrentFunction->func.rtype)
+         );
+         yyerror(buf);
+         break;
+      }
    }
    ;
 
 func_call_stmt: func_call SEMI
    {
-      // TODO: Ensure func_call returned T_NONE
       if ( $<info.type>1 != T_NONE )
       {
          char buf[MaxNameLen+128];
@@ -269,9 +287,8 @@ func_call_stmt: func_call SEMI
    }
    ;
 
-func_call: VAR_NAME LBRACKET arguments RBRACKET
+func_call: VAR_NAME LBRACKET
    {
-      // TODO: Check args.
       char const *func_name = $<info.name>1;
       Symbol_t *func = findSymbol(func_name);
       if( !func )
@@ -294,9 +311,87 @@ func_call: VAR_NAME LBRACKET arguments RBRACKET
 
       $<info.type>$ = func->func.rtype;
 
-      // Allow function name to be printed in func_call_stmt and value error messages
-      strcpy($<info.name>$, func_name);
+      // Preparations for arguments typechecking
+      argumentsRemaining = func->func.argc;
+      argumentsFunction = func;
+      // Find the start of the arguments
+      if(argumentsRemaining>0)
+      for(
+         argumentsIterator = SymTable;
+         argumentsIterator->tag != ST_PARAM
+         || argumentsIterator->var.function != func;
+         argumentsIterator++
+      ) assert(argumentsIterator < SymTable + MaxSyms);
    }
+   arguments RBRACKET
+   {
+      if( ErrorLevel==0 && argumentsRemaining>0 )
+      {
+         char buf[MaxNameLen+100];
+         sprintf(buf, "Function call to `%s` is missing %d arguments! Expected %d total.",
+            argumentsFunction->SymName,
+            argumentsRemaining,
+            argumentsFunction->func.argc
+         );
+         yyerror(buf);
+      }
+      // Clear iterator
+      argumentsRemaining = 0;
+      argumentsFunction = 0;
+      argumentsIterator = 0;
+
+      // Only the last code block has an effect on the whole rule's value.
+      $<info.type>$ = $<info.type>3;
+      // Allow function name to be printed in func_call_stmt and value error messages
+      strcpy($<info.name>$, $<info.name>1);
+   }
+   ;
+
+argument: value
+   {
+      // Skip arguments check if there's already been an error.
+      if( ErrorLevel!=0 ) break;
+
+      // ICE
+      assert(argumentsFunction);
+
+      if( argumentsRemaining<=0 )
+      {
+         char buf[MaxNameLen+40];
+         sprintf(buf, "Too many arguments in call to function `%s`", argumentsFunction->SymName);
+         yyerror(buf);
+         break;
+      }
+
+      // ICE's:
+      assert(argumentsIterator);
+      assert(argumentsIterator->tag == ST_PARAM);
+      assert(argumentsIterator->var.function == argumentsFunction);
+      assert(argumentsIterator < SymTable + MaxSyms);
+
+     if( argumentsIterator->var.type != $<info.type>1 )
+     {
+         char buf[MaxNameLen+100];
+         sprintf(buf, "Type mismatch in argument to function `%s`! expected type `%s`, got `%s`.",
+            argumentsFunction->SymName,
+            typeToName(argumentsIterator->var.type),
+            typeToName($<info.type>1)
+         );
+         yyerror(buf);
+         break;
+     }
+
+      argumentsIterator++;
+      argumentsRemaining--;
+   }
+   ;
+
+oneormorearguments: argument
+   | argument COMMA oneormorearguments
+   ;
+
+arguments: {}
+   | oneormorearguments
    ;
 
 action: CREATE BOT_NAME L_NUMBER L_NUMBER L_DIR SEMI
@@ -470,7 +565,10 @@ var_decl: TYPENAME VAR_NAME SEMI
       {
          char buf[MaxNameLen + 100];
          // TODO: Convert printf's to sprintf's, check all sprintf str safety.
-         sprintf(buf, "redeclaration of variable %s (type %s, doesn't matter what old type is).", $<info.name>2, typeToName($<info.type>1));
+         sprintf(buf,
+            "Cannot declare variable `%s` (type %s)! You may be shadowing another variable, a parameter, or a function.",
+            $<info.name>2, typeToName($<info.type>1)
+         );
          yyerror(buf);
       }
    }
@@ -618,7 +716,6 @@ void printTable()
          //"   %s declared line %d, column %d, return-type %s\n",
          //s->SymName, s->row+1, s->col, typeToName(s->func.rtype)
       );
-      // TODO: Print parameters for function as well..
       for( int y=0; y<NumSyms; y++ )
       {
          Symbol_t *s2 = &SymTable[y];
@@ -645,7 +742,7 @@ char const *typeToName( type_t type ) {
       // NOTE: slightly unsafe, but I think it's worthwhile.
       // This code will only run in the case of an internal compiler bug.
       static char s_buf[20];
-      sprintf(s_buf, "<<ICC ERRORTYPE: 0x%x>>", type);
+      sprintf(s_buf, "<<ICE ERRORTYPE: 0x%x>>", type);
       return s_buf;
    }
    return typenames[type - T_ERROR];
