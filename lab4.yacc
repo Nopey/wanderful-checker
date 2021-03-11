@@ -27,6 +27,7 @@ typedef struct Symbol {
    int row, col;
    symbol_tag_t tag;
    union {
+       // Var is valid for tag values of both ST_PARAM and ST_VAR
        struct { type_t type; struct Symbol *function; } var;
        struct { type_t rtype; int argc; } func;
        struct { long maprow, mapcol, facing; } bot;
@@ -51,12 +52,12 @@ int insertVar(char const *name, int r, int c, type_t type, Symbol_t *function);
 /* function to insert a new parameter into the symbol table
  * returns 1 if successful, 0 otherwise
  * (Cannot be used for creating other things) */
-int insertParam(char const *name, int r, int c, type_t type, Symbol_t *function);
+int insertParam(char const *name, int r, int c, type_t type);
 
 /* function to insert a new func in the symbol table
  * returns 1 if successful, 0 otherwise
  * (Cannot be used for creating variables or bots) */
-int createFunc(char const *name, int r, int c, int rtype);
+Symbol_t *createFunc(char const *name, int r, int c, int rtype);
 
 /* function to check if a name is in the symbol table
  * returns symbol pointer, or null if unsuccessful */
@@ -139,7 +140,32 @@ program: MAPSIZE L_NUMBER SEMI
    FINISH
    ;
 
-function: FUNCTION VAR_NAME LBRACKET parameters RBRACKET COLON TYPENAME FUNC_BEGIN statements END
+function: FUNCTION VAR_NAME LBRACKET parameters RBRACKET COLON TYPENAME
+   {
+      Symbol_t *func = createFunc($<info.name>2, row, col, $<info.type>7);
+      if (!func)
+      {
+         yyerror("Couldn't create function. TODO: Better error here");
+         break;
+      }
+
+      // Set our parameters' scope by greedily claiming all un-scoped parameters. 
+      for( int idx=0; idx<NumSyms; idx++ )
+      if( SymTable[idx].tag == ST_PARAM && !SymTable[idx].var.function )
+      {
+         SymTable[idx].var.function = func;
+         func->func.argc++;
+      }
+
+      // Used by local variables and scope resolution
+      CurrentFunction = func;
+   }
+   FUNC_BEGIN statements END
+   {
+      // We are no longer in a function
+      CurrentFunction = 0;
+   }
+   ;
 
 functions: {}
    | function functions
@@ -147,7 +173,7 @@ functions: {}
 
 parameter: TYPENAME VAR_NAME
    {
-   if (!insertParam($<info.name>2, row, col, $<info.type>1, CurrentFunction))
+   if (!insertParam($<info.name>2, row, col, $<info.type>1))
    {
       char buf[MaxNameLen + 100];
       sprintf(buf, "redeclaration of parameter %s (type %s, doesn't matter what old type is).", $<info.name>2, typeToName($<info.type>1));
@@ -202,6 +228,14 @@ var_ref: VAR_NAME {
       $<info.type>$ = T_ERROR;
       break;
    }
+   if(sym->tag != ST_VAR && sym->tag != ST_PARAM)
+   {
+      char buf[MaxNameLen+100];
+      sprintf(buf, "Cannot reference symbol '%s' as variable nor parameter. Perhaps it's a function?", $<info.name>1);
+      yyerror(buf);
+      $<info.type>$ = T_ERROR;
+      break;
+   }
    $<info.type>$ = sym->var.type;
 }
 
@@ -226,12 +260,21 @@ return_stmt: RETURN value SEMI
 func_call_stmt: func_call SEMI
    {
       // TODO: Ensure func_call returned T_NONE
+      if ( $<info.type>1 != T_NONE )
+      {
+         char buf[MaxNameLen+128];
+         sprintf(buf, "Function call to `%s` returns type `%s`. Only nonetype function calls are allowed at statement level!", $<info.name>1, typeToName($<info.type>1));
+         yyerror(buf);
+      }
    }
    ;
 
 func_call: VAR_NAME LBRACKET arguments RBRACKET
    {
       // TODO: func_call needs to pull type, check function args..
+
+      // Allow function name to be printed in func_call_stmt and value error messages
+      strcpy($<info.name>$, $<info.name>1);
    }
    ;
 
@@ -273,9 +316,6 @@ action: CREATE BOT_NAME L_NUMBER L_NUMBER L_DIR SEMI
        }
    }
    | PRINT value SEMI
-   {
-      // TODO: Forbid printing nonetype.
-   }
    | VAR_NAME ASSIGNOP value SEMI
    {
       char const *const varName = $<info.name>1;
@@ -319,6 +359,15 @@ value: addsub_expr
    | var_ref
    | bot_ref /* BOT_NAME Literal */
    | func_call
+   {
+      if( $<info.type>1==T_NONE )
+      {
+         char buf[MaxNameLen+70];
+         sprintf(buf, "Cannot call function `%s` in an expression; nonetype is forbidden in expressions!", $<info.name>1);
+         yyerror(buf);
+         $<info.type>$ = T_ERROR;
+      }
+   }
    | L_NUMBER { $<info.type>$ = T_INT; }
    | L_DIR { $<info.type>$ = T_FACING; }
    | L_STRING { $<info.type>$ = T_STR; }
@@ -390,7 +439,12 @@ lookup: BUILTIN LBRACKET value RBRACKET
 
 var_decl: TYPENAME VAR_NAME SEMI
    {
-      // TODO: Ensure variable type is not TYPE_NONE.
+      if ( $<info.type>1 == T_NONE )
+      {
+         char buf[MaxNameLen+50];
+         sprintf(buf, "Variable %s declared as type `none`; this is forbidden!", $<info.name>2);
+         yyerror(buf);
+      }
       if (!insertVar($<info.name>2, row, col, $<info.type>1, CurrentFunction))
       {
          char buf[MaxNameLen + 100];
@@ -476,27 +530,28 @@ int insertVar(char const *name, int r, int c, type_t type, Symbol_t *function)
    return 1;
 }
 
-int insertParam(char const *name, int r, int c, type_t type, Symbol_t *function)
+int insertParam(char const *name, int r, int c, type_t type)
 {
    Symbol_t *sym = _insert(name, r, c, ST_PARAM);
    if( !sym )
       return 0;
 
    sym->var.type = type;
-   sym->var.function = function;
+   sym->var.function = 0; // filled by function, not parameter.. :P
 
    return 1;
 }
 
-int CreateFunc(char const *name, int r, int c, int rtype)
+Symbol_t *createFunc(char const *name, int r, int c, int rtype)
 {
    Symbol_t *sym = _insert(name, r, c, ST_FUNC);
    if( !sym )
       return 0;
 
    sym->func.rtype = rtype;
+   sym->func.argc = 0;
 
-   return 1;
+   return sym;
 }
 
 void printTable()
