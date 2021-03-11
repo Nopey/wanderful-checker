@@ -17,6 +17,7 @@ typedef enum {
    // as these enum values are arbitrary, I'm distancing
    // them from `0` to make debugging uninitialized values easier
    T_ERROR = 51,
+   T_NONE, // Like C's `void`.
    T_FACING,
    T_NAME,
    T_STR,
@@ -41,7 +42,14 @@ typedef enum {
 
 // discriminator for symbol union
 typedef enum {
+    ST_PARAM,
     ST_VAR,
     ST_BOT,
     ST_FUNC
 } symbol_tag_t;
+
+// Arithmatic operators
+typedef enum {
+    ARTH_ADD,
+    ARTH_SUB,
+} arth_t;

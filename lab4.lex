@@ -56,23 +56,33 @@ int row=0;
 "("   { col+=1; return(LBRACKET); }
 ")"   { col+=1; return(RBRACKET); }
 ":="  { col+=2; return(ASSIGNOP); }
+":"   { col+=1; return(COLON); }
+","   { col+=1; return(COMMA); }
+"+"   { col+=1; yylval.info.arth = ARTH_ADD; return(ADDSUB); }
+"-"   { col+=1; yylval.info.arth = ARTH_SUB; return(ADDSUB); }
 
  /* Datatypes */
 "int"     { col+=3; yylval.info.type = T_INT;    return(TYPENAME); }
 "name"    { col+=4; yylval.info.type = T_NAME;   return(TYPENAME); }
 "str"     { col+=3; yylval.info.type = T_STR;    return(TYPENAME); }
 "facing"  { col+=6; yylval.info.type = T_FACING; return(TYPENAME); }
+"none"    { col+=4; yylval.info.type = T_NONE;   return(TYPENAME); }
 
  /* program */
 "mapsize" { col+=7; return(MAPSIZE); }
 "start"   { col+=5; return(START); }
 "finish"  { col+=6; return(FINISH); }
 
+ /* program */
+"function" { col+=8; return(FUNCTION); }
+"begin"    { col+=5; return(FUNC_BEGIN); }
+
  /* action */
 "create"  { col+=6; return(CREATE); }
 "move"    { col+=4; return(MOVE); }
 "turn"    { col+=4; return(TURN); }
 "print"   { col+=5; return(PRINT); }
+"return"  { col+=6; return(RETURN); }
 
  /* loop */
 "repeat"  { col+=6; return(REPEAT); }

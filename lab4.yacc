@@ -46,7 +46,12 @@ int insertBot(char const *name, int r, int c, long mrow, long mcol, long facing)
 /* function to insert a new var in the symbol table
  * returns 1 if successful, 0 otherwise
  * (Cannot be used for creating bots) */
-int insertVar(char const *name, int r, int c, int type, Symbol_t *function);
+int insertVar(char const *name, int r, int c, type_t type, Symbol_t *function);
+
+/* function to insert a new parameter into the symbol table
+ * returns 1 if successful, 0 otherwise
+ * (Cannot be used for creating other things) */
+int insertParam(char const *name, int r, int c, type_t type, Symbol_t *function);
 
 /* function to insert a new func in the symbol table
  * returns 1 if successful, 0 otherwise
@@ -82,6 +87,8 @@ void printTable();
       type_t type;
       // COMP_*, used on `COMPOP` token
       comp_t comp;
+      // ARTH_*, used by Arithmatic operators like + and -
+      arth_t arth;
    };
 } info; }
 
@@ -90,13 +97,15 @@ void printTable();
  /* Literals */
  L_STRING L_NUMBER L_DIR
  /* Symbols */
- SEMI LBRACKET RBRACKET ASSIGNOP
+ SEMI LBRACKET RBRACKET ASSIGNOP COLON COMMA ADDSUB
  /* Typenames */
  TYPENAME
  /* program */
  MAPSIZE START FINISH
+ /* functions */
+ FUNCTION FUNC_BEGIN
  /* action */
- CREATE MOVE TURN PRINT
+ CREATE MOVE TURN PRINT RETURN
  /* loop */
  REPEAT UNTIL
  /* select */
@@ -106,10 +115,13 @@ void printTable();
  /* User provided names */
  BOT_NAME VAR_NAME
 
- /* identify all nonterminals */
-%type<struct nodeinfo> program bot_ref var_ref statements statement action loop select comparison
- value lookup var_decl
+/* Addition and Subtraction uses LTR associativity */
+%left ADDSUB
 
+ /* identify all nonterminals */
+%type<struct nodeinfo> program bot_ref var_ref statement statements function functions
+ parameter oneormoreparameters parameters action loop select comparison value lookup
+ var_decl argument oneormorearguments arguments addsub_expr
 
  /* ---- part 2: grammar rules ----
   */
@@ -120,9 +132,47 @@ program: MAPSIZE L_NUMBER SEMI
    {
        MapSize = $<info.number>2;
    }
+       functions
    START
        statements
    FINISH
+   ;
+
+function: FUNCTION VAR_NAME LBRACKET parameters RBRACKET COLON TYPENAME FUNC_BEGIN statements END
+
+functions: {}
+   | function functions
+   ;
+
+parameter: TYPENAME VAR_NAME {
+   if (!insertParam($<info.name>2, row, col, $<info.type>1, CurrentFunction)) {
+      char buf[MaxNameLen + 100];
+      sprintf(buf, "redeclaration of parameter %s (type %s, doesn't matter what old type is).", $<info.name>2, typeToName($<info.type>1));
+      yyerror(buf);
+   }
+}
+   ;
+
+
+oneormoreparameters: parameter
+   | parameter COMMA oneormoreparameters
+   ;
+
+parameters: {}
+   | oneormoreparameters
+   ;
+
+argument: value {
+   // TODO: Typecheck arguments
+}
+   ;
+
+oneormorearguments: argument
+   | argument COMMA oneormorearguments
+   ;
+
+arguments: {}
+   | oneormorearguments
    ;
 
 bot_ref: BOT_NAME {
@@ -195,7 +245,9 @@ action: CREATE BOT_NAME L_NUMBER L_NUMBER L_DIR SEMI
            yyerror(buf);
        }
    }
-   | PRINT value SEMI
+   | PRINT value SEMI {
+   // TODO: Forbid printing nonetype.
+}
    | VAR_NAME ASSIGNOP value SEMI
    {
       char const *const varName = $<info.name>1;
@@ -234,12 +286,53 @@ comparison: LBRACKET value COMPOP value RBRACKET
       // invariant: If compop is EQ or NE types have to match, else both types have to be INT
    }
 
-value: lookup
+value: addsub_expr
+   | lookup
    | var_ref
    | bot_ref /* BOT_NAME Literal */
    | L_NUMBER { $<info.type>$ = T_INT; }
    | L_DIR { $<info.type>$ = T_FACING; }
    | L_STRING { $<info.type>$ = T_STR; }
+   ;
+
+addsub_expr: value ADDSUB value
+   {
+      // Add/sub always returns an integer.
+      $<info.type>$ = T_INT;
+
+      // Typechecking
+      int lgood = $<info.type>1 == T_INT;
+      int rgood = $<info.type>3 == T_INT;
+      if(!lgood && !rgood)
+      {
+          char buf[256];
+          sprintf(buf,
+             "Add/sub invalid on non-integer argument types %s and %s!",
+             typeToName($<info.type>1),
+             typeToName($<info.type>3)
+          );
+          yyerror(buf);
+      }
+      else if (!lgood && rgood)
+      {
+          char buf[256];
+          sprintf(buf,
+             "Add/sub's left hand expression invalid; non-integer type %s!",
+             typeToName($<info.type>1)
+          );
+          yyerror(buf);
+      }
+      else if (lgood && !rgood)
+      {
+          char buf[256];
+          sprintf(buf,
+             "Add/sub's right hand expression invalid; non-integer type %s!",
+             typeToName($<info.type>1)
+          );
+          yyerror(buf);
+      }
+      // else, all OK.
+   }
    ;
 
 lookup: BUILTIN LBRACKET value RBRACKET
@@ -267,6 +360,7 @@ lookup: BUILTIN LBRACKET value RBRACKET
    ;
 
 var_decl: TYPENAME VAR_NAME SEMI {
+      // TODO: Ensure variable type is not TYPE_NONE.
       if (!insertVar($<info.name>2, row, col, $<info.type>1, CurrentFunction)) {
          char buf[MaxNameLen + 100];
          // TODO: Convert printf's to sprintf's, check all sprintf str safety.
@@ -304,7 +398,7 @@ Symbol_t *findSymbol(char const *name)
    return 0;
 }
 
-int insertBot(char const *name, int r, int c, long mrow, long mcol, long facing)
+static Symbol_t *_insert(char const *name, int r, int c, symbol_tag_t st)
 {
    if( NumSyms>=MaxSyms )
    {
@@ -315,60 +409,60 @@ int insertBot(char const *name, int r, int c, long mrow, long mcol, long facing)
       return 0;
 
    Symbol_t *sym = &SymTable[NumSyms++];
-   sym->tag = ST_BOT;
+   sym->tag = st;
    sym->row = row;
-   sym->col = col;
+   sym->col = col;   
+
+   sym->SymName[0] = '\0';
+   strncat(sym->SymName, name, MaxNameLen);
+
+   return sym;
+}
+
+int insertBot(char const *name, int r, int c, long mrow, long mcol, long facing)
+{
+   Symbol_t *sym = _insert(name, r, c, ST_BOT);
+   if( !sym )
+      return 0;
+
    sym->bot.maprow = mrow;
    sym->bot.mapcol = mcol;
    sym->bot.facing = facing;
 
-   sym->SymName[0] = '\0';
-   strncat(sym->SymName, name, MaxNameLen);
+   return 1;
+}
+
+int insertVar(char const *name, int r, int c, type_t type, Symbol_t *function)
+{
+   Symbol_t *sym = _insert(name, r, c, ST_VAR);
+   if( !sym )
+      return 0;
+
+   sym->var.type = type;
+   sym->var.function = function;
 
    return 1;
 }
 
-int insertVar(char const *name, int r, int c, int type, Symbol_t *function)
+int insertParam(char const *name, int r, int c, type_t type, Symbol_t *function)
 {
-   if( NumSyms>=MaxSyms )
-   {
-      yyerror("ICE: Symbol table full!");
-      return 0;
-   }
-   if( findSymbol( name ) )
+   Symbol_t *sym = _insert(name, r, c, ST_PARAM);
+   if( !sym )
       return 0;
 
-   Symbol_t *sym = &SymTable[NumSyms++];
-   sym->tag = ST_VAR;
-   sym->row = row;
-   sym->col = col;
    sym->var.type = type;
    sym->var.function = function;
-
-   sym->SymName[0] = '\0';
-   strncat(sym->SymName, name, MaxNameLen);
 
    return 1;
 }
 
 int CreateFunc(char const *name, int r, int c, int rtype)
 {
-   if( NumSyms>=MaxSyms )
-   {
-      yyerror("ICE: Symbol table full!");
-      return 0;
-   }
-   if( findSymbol( name ) )
+   Symbol_t *sym = _insert(name, r, c, ST_FUNC);
+   if( !sym )
       return 0;
 
-   Symbol_t *sym = &SymTable[NumSyms++];
-   sym->tag = ST_FUNC;
-   sym->row = row;
-   sym->col = col;
    sym->func.rtype = rtype;
-
-   sym->SymName[0] = '\0';
-   strncat(sym->SymName, name, MaxNameLen);
 
    return 1;
 }
@@ -416,6 +510,7 @@ void printTable()
          //"   %s declared line %d, column %d, return-type %s\n",
          //s->SymName, s->row+1, s->col, typeToName(s->func.rtype)
       );
+      // TODO: Print parameters for function as well..
    }
 }
 
