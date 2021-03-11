@@ -613,8 +613,14 @@ Symbol_t *findSymbol(char const *name)
    //  names and var names are disjoint.
    // the is_bot flag is simply for displayTable's use.
    for( int idx=0; idx<NumSyms; idx++ )
+   {
+      if(
+         ( SymTable[idx].tag==ST_VAR || SymTable[idx].tag==ST_PARAM )
+         && SymTable[idx].var.function != CurrentFunction
+      ) continue; // out of scope
       if( !strcmp( SymTable[idx].SymName, name ) )
          return &SymTable[idx];
+   }
    return 0;
 }
 
