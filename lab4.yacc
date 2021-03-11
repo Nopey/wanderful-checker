@@ -589,9 +589,9 @@ void printTable()
       char const *DIR = "NSWE";
       printf(
          " %d,%d\t(%d, %d)\t%c\t%s\n",
-         s->row+1, s->col, s->bot.maprow, s->bot.mapcol, DIR[s->bot.facing], s->SymName
+         s->row+1, s->col+1, s->bot.maprow, s->bot.mapcol, DIR[s->bot.facing], s->SymName
          //"   %s declared line %d, column %d, coordinates (%d,%d), facing %c\n",
-         //s->SymName, s->row+1, s->col, s->bot.maprow, s->bot.mapcol, DIR[s->bot.facing]
+         //s->SymName, s->row+1, s->col+1, s->bot.maprow, s->bot.mapcol, DIR[s->bot.facing]
       );
    }
    puts(" - - - -");
@@ -601,10 +601,10 @@ void printTable()
       if(s->tag!=ST_VAR) continue;
       printf(
          " %d,%d\t%s\t%s\t{%s}\n",
-         s->row+1, s->col, typeToName(s->var.type), s->SymName,
+         s->row+1, s->col+1, typeToName(s->var.type), s->SymName,
          s->var.function ? s->var.function->SymName : "~"
          //"   %s declared line %d, column %d, type %s\n",
-         //s->SymName, s->row+1, s->col, typeToName(s->var.type)
+         //s->SymName, s->row+1, s->col+1, typeToName(s->var.type)
       );
    }
    puts(" - - - -");
@@ -613,12 +613,21 @@ void printTable()
       Symbol_t *s = &SymTable[x];
       if(s->tag!=ST_FUNC) continue;
       printf(
-         " %d,%d\t%s\t%s\n",
-         s->row+1, s->col, typeToName(s->func.rtype), s->SymName
+         " %d,%d\t%d\t%s\t%s()\n",
+         s->row+1, s->col, s->func.argc, typeToName(s->func.rtype), s->SymName
          //"   %s declared line %d, column %d, return-type %s\n",
          //s->SymName, s->row+1, s->col, typeToName(s->func.rtype)
       );
       // TODO: Print parameters for function as well..
+      for( int y=0; y<NumSyms; y++ )
+      {
+         Symbol_t *s2 = &SymTable[y];
+         if( s2->tag != ST_PARAM || s2->var.function != s ) continue;
+         printf(
+            " ... %d, %d\t%s\t%s\n",
+            s2->row+1, s2->col+1, typeToName(s2->var.type), s2->SymName
+         );
+      }
    }
 }
 
