@@ -122,6 +122,7 @@ void printTable();
 %type<struct nodeinfo> program bot_ref var_ref statement statements function functions
  parameter oneormoreparameters parameters action loop select comparison value lookup
  var_decl argument oneormorearguments arguments addsub_expr return_stmt
+ func_call func_call_stmt
 
  /* ---- part 2: grammar rules ----
   */
@@ -213,11 +214,24 @@ statement: select
    | action
    | var_decl
    | return_stmt
+   | func_call_stmt
    ;
 
 return_stmt: RETURN value SEMI
    {
-      // TODO
+      // TODO: Return statement must typecheck against current function
+   }
+   ;
+
+func_call_stmt: func_call SEMI
+   {
+      // TODO: Ensure func_call returned T_NONE
+   }
+   ;
+
+func_call: VAR_NAME LBRACKET arguments RBRACKET
+   {
+      // TODO: func_call needs to pull type, check function args..
    }
    ;
 
@@ -304,6 +318,7 @@ value: addsub_expr
    | lookup
    | var_ref
    | bot_ref /* BOT_NAME Literal */
+   | func_call
    | L_NUMBER { $<info.type>$ = T_INT; }
    | L_DIR { $<info.type>$ = T_FACING; }
    | L_STRING { $<info.type>$ = T_STR; }
