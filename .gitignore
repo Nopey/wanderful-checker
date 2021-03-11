@@ -5,3 +5,11 @@
 core
 *.core
 a.out
+// binaries
+lab4
+lab4d
+// generated source files
+*.c
+*.h
+// manually written source file
+!shareddefs.h

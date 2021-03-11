@@ -11,6 +11,7 @@ Digit [0-9]
  /* part 1b: the C setup */
 %{
 #include<stdio.h>
+#include "shareddefs.h"
 #include "y.tab.h"
 extern YYSTYPE yylval;
 int yywrap();
@@ -23,13 +24,98 @@ int row=0;
 
  /* ---- part 2: token rules ---- */
 
-({Digit})+ { col+=strlen(yytext); return(NUMBER); }
+ /* Literals */
+\'([^\'\n]*)\' {
+   // String Literal
+   int len = strlen(yytext);
+   if (len >= MaxNameLen)
+   {
+      // Because we reuse the info.name buffer, MaxNameLen is the limit for strings as well.
+      yyerror("String exceeds max length.");
+      printf("   offending string was: %s, limit is %d.\n", yytext, MaxNameLen-1);
+  }
+  col += len;
+  strcpy(yylval.info.name, yytext);
+  return(L_STRING);
+}
+"north"   { col+=5; yylval.info.type = T_FACING; yylval.info.dir = DIR_N; return(L_DIR); }
+"south"   { col+=5; yylval.info.type = T_FACING; yylval.info.dir = DIR_S; return(L_DIR); }
+"west"    { col+=4; yylval.info.type = T_FACING; yylval.info.dir = DIR_W; return(L_DIR); }
+"east"    { col+=4; yylval.info.type = T_FACING; yylval.info.dir = DIR_E; return(L_DIR); }
+({Digit})+     { yylval.info.number = atol(yytext);
+                 yylval.info.type = T_INT;
+                 col+=strlen(yytext);
+                 return(L_NUMBER); }
 
-"start"    { col+=5; return(START); }
-"finish"    { col+=6; return(FINISH); }
+ /* Symbols */
+";"   { col+=1; return(SEMI); }
+"<"   { col+=1; yylval.info.comp = COMP_LT;   return(COMPOP); }
+"<="  { col+=2; yylval.info.comp = COMP_LTEQ; return(COMPOP); }
+"="   { col+=1; yylval.info.comp = COMP_EQ;   return(COMPOP); }
+"><"  { col+=2; yylval.info.comp = COMP_NE;   return(COMPOP); }
+"("   { col+=1; return(LBRACKET); }
+")"   { col+=1; return(RBRACKET); }
+":="  { col+=2; return(ASSIGNOP); }
+
+ /* Datatypes */
+"int"     { col+=3; yylval.info.type = T_INT;    return(TYPENAME); }
+"name"    { col+=4; yylval.info.type = T_NAME;   return(TYPENAME); }
+"str"     { col+=3; yylval.info.type = T_STR;    return(TYPENAME); }
+"facing"  { col+=6; yylval.info.type = T_FACING; return(TYPENAME); }
+
+ /* program */
+"mapsize" { col+=7; return(MAPSIZE); }
+"start"   { col+=5; return(START); }
+"finish"  { col+=6; return(FINISH); }
+
+ /* action */
+"create"  { col+=6; return(CREATE); }
+"move"    { col+=4; return(MOVE); }
+"turn"    { col+=4; return(TURN); }
+"print"   { col+=5; return(PRINT); }
+
+ /* loop */
+"repeat"  { col+=6; return(REPEAT); }
+"until"   { col+=5; return(UNTIL); }
+
+ /* select */
+"if"      { col+=2; return(IF); }
+"then"    { col+=4; return(THEN); }
+"end"     { col+=3; return(END); }
+
+ /* builtin */
+"row"     { col+=3; yylval.info.builtin = B_ROW;  return(BUILTIN); }
+"col"     { col+=3; yylval.info.builtin = B_COL;  return(BUILTIN); }
+"face"    { col+=4; yylval.info.builtin = B_FACE; return(BUILTIN); }
+
+ /* Names */
+([A-Z][a-z]+) {
+   int len = strlen(yytext);
+   if (len >= MaxNameLen)
+   {
+      yyerror("Name exceeds max name length.");
+      printf("   offending name was: %s, limit is %d.\n", yytext, MaxNameLen-1);
+  }
+  col += len;
+  strcpy(yylval.info.name, yytext);
+  return(BOT_NAME);
+}
+([a-z][a-z0-9]*) {
+   int len = strlen(yytext);
+   if (len >= MaxNameLen)
+   {
+      yyerror("Name exceeds max name length.");
+      printf("   offending name was: %s, limit is %d.\n", yytext, MaxNameLen-1);
+  }
+  col += len;
+  strcpy(yylval.info.name, yytext);
+  return(VAR_NAME);
+}
 
  /* identify any characters that are just to be skipped, e.g. whitespace */
 [ \t\f\v]  { col++; }
+ /* comments */
+(%[^\n]*)     { col+=strlen(yytext); }
 
  /* adjust row/column after a newline */
 ([\n]) { row++; col=0; }
@@ -53,7 +139,8 @@ int yywrap()
  /* process any error messages generated */
 int yyerror(char* s)
 {
-   fprintf(stderr, "\n***Error detected: %s\n   on/after row %d, col %d.\n\n", s, row, col);
+   fprintf(stderr, "\n***Error detected: %s\n   on/after line %d, col %d.\n\n", s, row+1, col);
+   ErrorLevel = 1;
    return 1;
 }
 
