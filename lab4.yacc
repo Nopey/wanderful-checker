@@ -466,8 +466,23 @@ select: IF comparison THEN statements END
 
 comparison: LBRACKET value COMPOP value RBRACKET
    {
-      // TODO: comparison code
-      // invariant: If compop is EQ or NE types have to match, else both types have to be INT
+      switch( $<info.comp>3 )
+      {
+         case COMP_EQ:
+         case COMP_NE:
+         if( $<info.type>2 != $<info.type>4 )
+         {
+             yyerror("Comparison of mismatched types!");
+         }
+         break;
+
+         default:
+         if( $<info.type>2 != T_INT || $<info.type>4 != T_INT)
+         {
+             yyerror("Numeric comparison involving one or more invalid types!");
+         }
+         break;
+      }
    }
 
 value: addsub_expr
