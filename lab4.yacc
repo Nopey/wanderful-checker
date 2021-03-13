@@ -31,7 +31,7 @@ typedef struct Symbol {
        // Var is valid for tag values of both ST_PARAM and ST_VAR
        struct { type_t type; struct Symbol *function; } var;
        struct { type_t rtype; int argc; } func;
-       struct { long maprow, mapcol, facing; } bot;
+       struct { } bot;
    };
 } Symbol_t;
 
@@ -49,7 +49,7 @@ static Symbol_t *argumentsFunction = 0;
 /* function to insert a new bot in the symbol table
  * returns 1 if successful, 0 otherwise
  * (Cannot be used for creating variables) */
-int insertBot(char const *name, int r, int c, long mrow, long mcol, long facing);
+int insertBot(char const *name, int r, int c);
 
 /* function to insert a new var in the symbol table
  * returns 1 if successful, 0 otherwise
@@ -394,9 +394,9 @@ arguments: {}
    | oneormorearguments
    ;
 
-action: CREATE BOT_NAME L_NUMBER L_NUMBER L_DIR SEMI
+action: CREATE BOT_NAME value value value SEMI
    {
-      if (!insertBot($<info.name>2, row, col, $<info.number>3, $<info.number>4, $<info.dir>5))
+      if (!insertBot($<info.name>2, row, col))
       {
          char buf[MaxNameLen+40];
          sprintf(buf, "Redeclaration of `%s`", $<info.name>2);
@@ -645,15 +645,11 @@ static Symbol_t *_insert(char const *name, int r, int c, symbol_tag_t st)
    return sym;
 }
 
-int insertBot(char const *name, int r, int c, long mrow, long mcol, long facing)
+int insertBot(char const *name, int r, int c)
 {
    Symbol_t *sym = _insert(name, r, c, ST_BOT);
    if( !sym )
       return 0;
-
-   sym->bot.maprow = mrow;
-   sym->bot.mapcol = mcol;
-   sym->bot.facing = facing;
 
    return 1;
 }
@@ -707,8 +703,8 @@ void printTable()
       if(s->tag!=ST_BOT) continue;
       char const *DIR = "NSWE";
       printf(
-         " %d,%d\t(%d, %d)\t%c\t%s\n",
-         s->row+1, s->col+1, s->bot.maprow, s->bot.mapcol, DIR[s->bot.facing], s->SymName
+         " %d,%d\t%s\n",
+         s->row+1, s->col+1, s->SymName
          //"   %s declared line %d, column %d, coordinates (%d,%d), facing %c\n",
          //s->SymName, s->row+1, s->col+1, s->bot.maprow, s->bot.mapcol, DIR[s->bot.facing]
       );
