@@ -396,6 +396,33 @@ arguments: {}
 
 action: CREATE BOT_NAME value value value SEMI
    {
+      if ($<info.type>3 != T_INT)
+      {
+         char buf[MaxNameLen+64];
+         sprintf(buf,
+            "Expected integer for maprow of bot `%s`, got value of type `%s`.",
+            $<info.name>2, typeToName( $<info.type>3 )
+         );
+         yyerror(buf);
+      }
+      if ($<info.type>4 != T_INT)
+      {
+         char buf[MaxNameLen+64];
+         sprintf(buf,
+            "Expected integer for maprow of bot `%s`, got value of type `%s`.",
+            $<info.name>2, typeToName( $<info.type>4 )
+         );
+         yyerror(buf);
+      }
+      if ($<info.type>5 != T_FACING)
+      {
+         char buf[MaxNameLen+64];
+         sprintf(buf,
+            "Expected facing for direction of bot `%s`, got value of type `%s`.",
+            $<info.name>2, typeToName( $<info.type>5 )
+         );
+         yyerror(buf);
+      }
       if (!insertBot($<info.name>2, row, col))
       {
          char buf[MaxNameLen+40];
